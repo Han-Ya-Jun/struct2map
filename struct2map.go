@@ -13,6 +13,7 @@ import (
 * @Description:
  */
 
+
 var (
 	ErrNotPtr       = errors.New("need a pointer")
 	ErrNotValidElem = errors.New("pointer not point to struct")
@@ -43,8 +44,12 @@ func getKey(tagStr string) (key string, err error) {
 	return key, err
 }
 
-// struct2map
+// struct2map 支持嵌套
 func Struct2map(st interface{}) (map[string]interface{}, error) {
+	m := make(map[string]interface{})
+	if IsNil(st) || st == nil {
+		return m, nil
+	}
 	stType := reflect.TypeOf(st)
 	if stType.Kind() != reflect.Ptr {
 		return nil, ErrNotPtr
@@ -54,24 +59,7 @@ func Struct2map(st interface{}) (map[string]interface{}, error) {
 		return nil, ErrNotValidElem
 	}
 	stVal := reflect.Indirect(reflect.ValueOf(st))
-	m := make(map[string]interface{})
-	for i := 0; i < eleType.NumField(); i++ {
-		tagStr, ok := eleType.Field(i).Tag.Lookup(TagName)
-		if !ok {
-			return nil, ErrNeedTag
-		}
-		key, err := getKey(tagStr)
-		if err == ErrNotValidKey || err == ErrNotValidTag {
-			return nil, err
-		}
-		if err == ErrIgnore {
-			continue
-		}
-		if err == ErrOmitempty && (IsNil(stVal.Field(i).Interface()) || stVal.Field(i).Interface() == "") {
-			continue
-		}
-		m[key] = stVal.Field(i).Interface()
-	}
+	FillMap(m, stVal, eleType)
 	return m, nil
 }
 
@@ -81,4 +69,29 @@ func IsNil(i interface{}) bool {
 		return vi.IsNil()
 	}
 	return false
+}
+
+func FillMap(m map[string]interface{}, val interface{}, eleType reflect.Type) {
+	for i := 0; i < eleType.NumField(); i++ {
+		if eleType.Field(i).Type.Kind() == reflect.Struct {
+			FillMap(m, val.(reflect.Value).Field(i), eleType.Field(i).Type)
+			continue
+		}
+		tagStr, ok := eleType.Field(i).Tag.Lookup(TagName)
+		if !ok {
+			continue
+		}
+		key, err := getKey(tagStr)
+		if err == ErrNotValidKey || err == ErrNotValidTag {
+			continue
+		}
+		if err == ErrIgnore {
+			continue
+		}
+		value := val.(reflect.Value).Field(i).Interface()
+		if err == ErrOmitempty && (IsNil(value) || value == "") {
+			continue
+		}
+		m[key] = value
+	}
 }
